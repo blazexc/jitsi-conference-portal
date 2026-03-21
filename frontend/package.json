@@ -1,0 +1,36 @@
+{
+  "name": "frontend",
+  "version": "1.0.0",
+  "description": "Jitsi 会议门户前端",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0 --port 5173",
+    "build": "vite build",
+    "preview": "vite preview --host 0.0.0.0 --port 4173",
+    "lint": "eslint src --ext .js,.jsx",
+    "test": "node -e \"console.log('前端当前未集成测试框架')\""
+  },
+  "keywords": [
+    "jitsi",
+    "react",
+    "portal"
+  ],
+  "author": "OpenAI Codex",
+  "license": "ISC",
+  "type": "module",
+  "dependencies": {
+    "@monaco-editor/react": "^4.7.0",
+    "axios": "^1.13.6",
+    "monaco-editor": "^0.55.1",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "react-router-dom": "^7.13.1",
+    "yaml": "^2.8.2",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@vitejs/plugin-react": "^6.0.1",
+    "eslint": "^10.1.0",
+    "vite": "^8.0.1"
+  }
+}

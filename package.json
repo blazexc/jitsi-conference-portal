@@ -1,0 +1,15 @@
+{
+  "name": "jitsi-conference-portal",
+  "version": "1.0.0",
+  "private": true,
+  "description": "基于 Jitsi IFrame API 的会议业务门户",
+  "scripts": {
+    "dev:backend": "npm run dev --prefix backend",
+    "dev:frontend": "npm run dev --prefix frontend",
+    "build:frontend": "npm run build --prefix frontend",
+    "start:backend": "npm run start --prefix backend",
+    "test": "npm run test --prefix backend",
+    "lint": "npm run lint --prefix backend && npm run lint --prefix frontend"
+  }
+}
+

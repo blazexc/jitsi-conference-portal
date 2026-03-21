@@ -1,0 +1,14 @@
+services:
+  jitsi-conference-portal:
+    build: .
+    container_name: jitsi-conference-portal
+    restart: unless-stopped
+    ports:
+      - "18080:18080"
+    environment:
+      PORT: 18080
+      SESSION_SECRET: ${SESSION_SECRET:-please-change-session-secret}
+      JWT_SECRET: ${JWT_SECRET:-please-change-jwt-secret}
+    volumes:
+      - ./backend/data:/app/backend/data
+

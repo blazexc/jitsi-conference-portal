@@ -1,0 +1,32 @@
+{
+  "name": "backend",
+  "version": "1.0.0",
+  "description": "Jitsi 会议门户轻量业务后端",
+  "main": "src/server.js",
+  "scripts": {
+    "dev": "node --watch src/server.js",
+    "start": "node src/server.js",
+    "lint": "node -e \"console.log('lint 暂未启用，后续可接入 ESLint')\"",
+    "test": "node --test src/tests/*.test.js"
+  },
+  "keywords": [
+    "jitsi",
+    "conference",
+    "portal"
+  ],
+  "author": "OpenAI Codex",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "bcryptjs": "^3.0.3",
+    "cors": "^2.8.6",
+    "express": "^5.2.1",
+    "express-session": "^1.19.0",
+    "helmet": "^8.1.0",
+    "jsonwebtoken": "^9.0.3",
+    "morgan": "^1.10.1",
+    "nanoid": "^5.1.7",
+    "yaml": "^2.8.2",
+    "zod": "^4.3.6"
+  }
+}
