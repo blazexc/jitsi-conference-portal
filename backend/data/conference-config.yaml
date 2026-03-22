@@ -58,7 +58,7 @@ users:
     role: master_host
     groupId: ""
     # 示例口令为 Master@123，仅用于首启验证。
-    passwordHash: $2b$10$KHgyhg8IlFC8tZV3tV2fN.Om8Bhnl2x9wvx7x2BifKt/.Y9bWSi4S
+    passwordHash: $2b$10$f32QrigR.7dJSuHMYhoC/u2gGKD4J.0.PVBVgr3ekRJVKn3H9iequ
     canStartRecording: true
     canStartTranscription: true
   - id: host-a
@@ -66,7 +66,7 @@ users:
     displayName: 一组主持
     role: group_host
     groupId: group-a
-    passwordHash: $2b$10$KHgyhg8IlFC8tZV3tV2fN.Om8Bhnl2x9wvx7x2BifKt/.Y9bWSi4S
+    passwordHash: $2b$10$f32QrigR.7dJSuHMYhoC/u2gGKD4J.0.PVBVgr3ekRJVKn3H9iequ
     canStartRecording: true
     canStartTranscription: false
   - id: host-b
@@ -74,7 +74,7 @@ users:
     displayName: 二组主持
     role: group_host
     groupId: group-b
-    passwordHash: $2b$10$KHgyhg8IlFC8tZV3tV2fN.Om8Bhnl2x9wvx7x2BifKt/.Y9bWSi4S
+    passwordHash: $2b$10$f32QrigR.7dJSuHMYhoC/u2gGKD4J.0.PVBVgr3ekRJVKn3H9iequ
     canStartRecording: true
     canStartTranscription: false
   - id: member-1
@@ -109,4 +109,3 @@ matrixWall:
   maxTilesPerGroup: 6
   rotateSeconds: 30
   maxConcurrentIframes: 12
-

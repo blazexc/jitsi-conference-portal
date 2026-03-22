@@ -225,7 +225,7 @@ function defaultConfigYaml() {
         role: "master_host",
         groupId: "",
         // 明文密码是 "Master@123"，仅示例环境使用。
-        passwordHash: "$2b$10$KHgyhg8IlFC8tZV3tV2fN.Om8Bhnl2x9wvx7x2BifKt/.Y9bWSi4S",
+        passwordHash: "$2b$10$f32QrigR.7dJSuHMYhoC/u2gGKD4J.0.PVBVgr3ekRJVKn3H9iequ",
         canStartRecording: true,
         canStartTranscription: true
       },
@@ -235,7 +235,7 @@ function defaultConfigYaml() {
         displayName: "一组主持",
         role: "group_host",
         groupId: "group-a",
-        passwordHash: "$2b$10$KHgyhg8IlFC8tZV3tV2fN.Om8Bhnl2x9wvx7x2BifKt/.Y9bWSi4S",
+        passwordHash: "$2b$10$f32QrigR.7dJSuHMYhoC/u2gGKD4J.0.PVBVgr3ekRJVKn3H9iequ",
         canStartRecording: true,
         canStartTranscription: false
       },
@@ -245,7 +245,7 @@ function defaultConfigYaml() {
         displayName: "二组主持",
         role: "group_host",
         groupId: "group-b",
-        passwordHash: "$2b$10$KHgyhg8IlFC8tZV3tV2fN.Om8Bhnl2x9wvx7x2BifKt/.Y9bWSi4S",
+        passwordHash: "$2b$10$f32QrigR.7dJSuHMYhoC/u2gGKD4J.0.PVBVgr3ekRJVKn3H9iequ",
         canStartRecording: true,
         canStartTranscription: false
       },
@@ -296,4 +296,3 @@ module.exports = {
   listHistory,
   rollback
 };
-
