@@ -23,9 +23,6 @@ async function authenticateHost(username, password) {
   if (!user) {
     return null;
   }
-  if (user.role === "member") {
-    return null;
-  }
   const ok = await bcrypt.compare(password, user.passwordHash || "");
   if (!ok) {
     return null;
@@ -95,4 +92,3 @@ module.exports = {
   parseToken,
   getConfig
 };
-

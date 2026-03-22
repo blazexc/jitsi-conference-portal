@@ -6,10 +6,10 @@ import { useAuth } from "./modules/auth-context";
 import {
   authorizeControl,
   bootstrap,
-  history,
+  createGroupedMeeting,
+  createMeeting,
+  joinMeeting,
   loadConfig,
-  logs,
-  rollback,
   saveConfig,
   validateConfig
 } from "./modules/api";
@@ -27,25 +27,31 @@ export default function App() {
 
 function ProtectedLayout() {
   const { isAuthed, loading, user: authedUser } = useAuth();
-  const [state, setState] = useState({ loading: false, config: null, me: null, error: "" });
+  const [state, setState] = useState({ loading: false, config: null, me: null, meetings: [], error: "" });
 
   useEffect(() => {
     if (!isAuthed) {
-      // 未登录时不再等待 bootstrap，直接交给路由跳转到登录页。
-      setState({ loading: false, config: null, me: null, error: "" });
+      setState({ loading: false, config: null, me: null, meetings: [], error: "" });
       return;
     }
     setState((prev) => ({ ...prev, loading: true, error: "" }));
     bootstrap()
       .then((res) => {
-        setState({ loading: false, config: res.config, me: res.me, error: "" });
+        setState({
+          loading: false,
+          config: res.config,
+          me: res.me,
+          meetings: Array.isArray(res.meetings) ? res.meetings : [],
+          error: ""
+        });
       })
-      .catch(() => {
+      .catch((error) => {
         setState({
           loading: false,
           config: null,
           me: authedUser || null,
-          error: "会话已建立，但加载门户数据失败。请刷新后重试。"
+          meetings: [],
+          error: error?.response?.data?.message || "加载门户数据失败"
         });
       });
   }, [isAuthed, authedUser]);
@@ -53,16 +59,14 @@ function ProtectedLayout() {
   if (loading || state.loading) {
     return <div className="center-panel">加载中...</div>;
   }
-
   if (!isAuthed) {
     return <Navigate to="/login" replace />;
   }
-
   if (!state.config || !state.me) {
     return (
       <div className="center-panel">
         <h2>页面加载失败</h2>
-        <p>{state.error || "未获取到门户数据，请刷新页面后重试。"}</p>
+        <p>{state.error || "请刷新后重试"}</p>
       </div>
     );
   }
@@ -72,16 +76,9 @@ function ProtectedLayout() {
       <Header me={state.me} />
       <main className="content">
         <Routes>
-          <Route path="/" element={<PortalHome config={state.config} me={state.me} />} />
-          <Route path="/meeting/main" element={<MeetingPage mode="main" config={state.config} me={state.me} />} />
-          <Route path="/meeting/group/:groupId" element={<MeetingPage mode="group" config={state.config} me={state.me} />} />
-          <Route path="/console/master" element={<MasterConsole config={state.config} me={state.me} />} />
-          <Route path="/console/group" element={<GroupConsole config={state.config} me={state.me} />} />
-          <Route path="/config/editor" element={<ConfigEditor />} />
-          <Route path="/config/preview" element={<ConfigPreview />} />
-          <Route path="/config/history" element={<ConfigHistory />} />
-          <Route path="/logs" element={<LogsPage />} />
-          <Route path="/wall" element={<MatrixWall config={state.config} me={state.me} />} />
+          <Route path="/" element={<RoleHome me={state.me} meetings={state.meetings} />} />
+          <Route path="/meeting/:meetingId" element={<MeetingPage me={state.me} config={state.config} />} />
+          <Route path="/master/config" element={<MasterConfigPage me={state.me} />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>
@@ -94,21 +91,14 @@ function Header({ me }) {
   return (
     <header className="header">
       <div>
-        <h1>Jitsi 会议门户</h1>
+        <h1>Jitsi 会议业务系统</h1>
         <p>
-          当前用户: {me?.displayName || "-"} ({me?.role || "-"})
+          当前用户: {me.displayName} ({me.role})
         </p>
       </div>
       <nav className="nav">
-        <Link to="/">门户首页</Link>
-        <Link to="/meeting/main">主会场</Link>
-        <Link to="/console/master">总主持台</Link>
-        <Link to="/console/group">小组主持台</Link>
-        <Link to="/wall">矩阵墙</Link>
-        <Link to="/config/editor">配置编辑</Link>
-        <Link to="/config/preview">配置预览</Link>
-        <Link to="/config/history">配置历史</Link>
-        <Link to="/logs">系统日志</Link>
+        <Link to="/">首页</Link>
+        {me.role === "master_host" ? <Link to="/master/config">配置页</Link> : null}
         <button type="button" onClick={() => logout()}>
           退出
         </button>
@@ -127,23 +117,22 @@ function LoginPage() {
   }
   return (
     <div className="center-panel">
-      <h2>主持人登录</h2>
-      <p>总主持/小组主持通过账号密码登录，普通成员请使用直入链接。</p>
-      {error && <p className="error">{error}</p>}
+      <h2>登录页</h2>
+      <p>输入账号密码登录系统</p>
+      {error ? <p className="error">{error}</p> : null}
       <form
         onSubmit={async (event) => {
           event.preventDefault();
-          setError("");
           try {
             await hostLogin(form.username, form.password);
             navigate("/");
           } catch (e) {
-            setError(e?.response?.data?.message || "登录失败");
+            setError(e?.response?.data?.message || "用户名或密码错误");
           }
         }}
       >
         <label>
-          用户名
+          账号
           <input value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value })} />
         </label>
         <label>
@@ -157,164 +146,312 @@ function LoginPage() {
 }
 
 function MemberEntryPage() {
+  const { memberTokenLogin } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
-  const { memberTokenLogin, isAuthed } = useAuth();
-  const [message, setMessage] = useState("正在验证成员链接...");
+  const [message, setMessage] = useState("正在验证链接...");
 
   useEffect(() => {
     const token = new URLSearchParams(location.search).get("token");
     if (!token) {
-      setMessage("缺少 token 参数");
+      setMessage("缺少 token");
       return;
     }
     memberTokenLogin(token)
       .then(() => navigate("/"))
-      .catch((error) => setMessage(error?.response?.data?.message || "成员链接验证失败"));
+      .catch(() => setMessage("链接无效"));
   }, [location.search, memberTokenLogin, navigate]);
 
-  if (isAuthed) {
-    return <Navigate to="/" replace />;
-  }
   return <div className="center-panel">{message}</div>;
 }
 
-function PortalHome({ config, me }) {
-  const groups = config.meetingTemplate.groups;
+function RoleHome({ me, meetings }) {
+  if (me.role === "member") {
+    return <MemberHome meetings={meetings} />;
+  }
+  if (me.role === "group_host") {
+    return <GroupHostHome meetings={meetings} />;
+  }
+  return <MasterHome meetings={meetings} />;
+}
+
+function MemberHome({ meetings }) {
   return (
     <section className="panel">
-      <h2>{config.system.systemName}</h2>
-      <p>角色：{me.role}</p>
-      <div className="grid">
-        <Card title="进入主会场" to="/meeting/main" />
-        {groups.map((group) => (
-          <Card key={group.id} title={`进入 ${group.name}`} to={`/meeting/group/${group.id}`} />
-        ))}
-        <Card title="总主持控制台" to="/console/master" />
-        <Card title="小组主持控制台" to="/console/group" />
-        <Card title="矩阵巡检墙" to="/wall" />
-      </div>
+      <h2>普通用户首页</h2>
+      <p>输入会议ID并加入会议</p>
+      <JoinMeetingForm meetings={meetings} />
     </section>
   );
 }
 
-function Card({ title, to }) {
+function GroupHostHome({ meetings }) {
+  const [name, setName] = useState("");
+  const [created, setCreated] = useState("");
   return (
-    <Link className="card" to={to}>
-      {title}
-    </Link>
+    <section className="panel">
+      <h2>分组主持人首页</h2>
+      <JoinMeetingForm meetings={meetings} />
+      <hr />
+      <h3>发起会议</h3>
+      <div className="toolbar">
+        <input placeholder="会议名称" value={name} onChange={(e) => setName(e.target.value)} />
+        <button
+          onClick={async () => {
+            const res = await createMeeting(name);
+            setCreated(res.meeting.meetingId);
+          }}
+        >
+          创建会议
+        </button>
+      </div>
+      {created ? <p className="hint">会议创建成功，会议ID: {created}</p> : null}
+    </section>
   );
 }
 
-function MeetingPage({ mode, config, me }) {
-  const params = useParams();
+function MasterHome({ meetings }) {
+  const [name, setName] = useState("");
+  const [groupName, setGroupName] = useState("");
+  const [groupRows, setGroupRows] = useState([{ groupId: "group-a", groupName: "第一组", hostUsername: "host_a", membersText: "member_01" }]);
+  const [created, setCreated] = useState("");
+  return (
+    <section className="panel">
+      <h2>总主持人首页</h2>
+      <JoinMeetingForm meetings={meetings} />
+
+      <hr />
+      <h3>发起会议</h3>
+      <div className="toolbar">
+        <input placeholder="会议名称" value={name} onChange={(e) => setName(e.target.value)} />
+        <button
+          onClick={async () => {
+            const res = await createMeeting(name);
+            setCreated(res.meeting.meetingId);
+          }}
+        >
+          创建会议
+        </button>
+      </div>
+
+      <hr />
+      <h3>发起分组会议</h3>
+      <div className="toolbar">
+        <input placeholder="分组会议名称" value={groupName} onChange={(e) => setGroupName(e.target.value)} />
+        <button
+          onClick={() =>
+            setGroupRows((prev) => [...prev, { groupId: `group-${prev.length + 1}`, groupName: `第${prev.length + 1}组`, hostUsername: "", membersText: "" }])
+          }
+        >
+          + 添加分组
+        </button>
+      </div>
+      {groupRows.map((row, index) => (
+        <div key={index} className="toolbar">
+          <input placeholder="分组ID" value={row.groupId} onChange={(e) => updateGroupRow(groupRows, setGroupRows, index, "groupId", e.target.value)} />
+          <input placeholder="分组名称" value={row.groupName} onChange={(e) => updateGroupRow(groupRows, setGroupRows, index, "groupName", e.target.value)} />
+          <input
+            placeholder="分组主持账号"
+            value={row.hostUsername}
+            onChange={(e) => updateGroupRow(groupRows, setGroupRows, index, "hostUsername", e.target.value)}
+          />
+          <input
+            placeholder="与会者账号(逗号分隔)"
+            value={row.membersText}
+            onChange={(e) => updateGroupRow(groupRows, setGroupRows, index, "membersText", e.target.value)}
+          />
+        </div>
+      ))}
+      <button
+        onClick={async () => {
+          const payload = groupRows.map((row) => ({
+            groupId: row.groupId,
+            groupName: row.groupName,
+            hostUsername: row.hostUsername,
+            members: row.membersText
+              .split(",")
+              .map((item) => item.trim())
+              .filter(Boolean)
+          }));
+          const res = await createGroupedMeeting(groupName, payload);
+          setCreated(res.meeting.meetingId);
+        }}
+      >
+        创建分组会议
+      </button>
+
+      {created ? <p className="hint">会议创建成功，会议ID: {created}</p> : null}
+      <p>
+        <Link to="/master/config">进入配置页面</Link>
+      </p>
+    </section>
+  );
+}
+
+function updateGroupRow(rows, setter, index, key, value) {
+  const next = [...rows];
+  next[index] = { ...next[index], [key]: value };
+  setter(next);
+}
+
+function JoinMeetingForm({ meetings }) {
+  const [meetingId, setMeetingId] = useState("");
+  const [message, setMessage] = useState("");
+  const navigate = useNavigate();
+  return (
+    <>
+      <div className="toolbar">
+        <input placeholder="会议ID输入框" value={meetingId} onChange={(e) => setMeetingId(e.target.value)} />
+        <button
+          onClick={async () => {
+            try {
+              const res = await joinMeeting(meetingId);
+              navigate(`/meeting/${res.meeting.meetingId}?room=${encodeURIComponent(res.roomName)}`);
+            } catch (error) {
+              setMessage(error?.response?.data?.message || "加入会议失败");
+            }
+          }}
+        >
+          加入会议
+        </button>
+      </div>
+      {message ? <p className="error">{message}</p> : null}
+      <h3>最近会议</h3>
+      <ul>
+        {meetings.slice(0, 8).map((item) => (
+          <li key={item.meetingId}>
+            {item.meetingId} - {item.name}
+          </li>
+        ))}
+      </ul>
+    </>
+  );
+}
+
+function MeetingPage({ me, config }) {
+  const { meetingId } = useParams();
+  const location = useLocation();
+  const roomName = new URLSearchParams(location.search).get("room") || `biz-${meetingId}`.toLowerCase();
   const [events, setEvents] = useState([]);
-  const roomName = useMemo(() => {
-    if (mode === "main") {
-      return `${config.system.defaultMeetingPrefix}-${config.meetingTemplate.mainRoomName}`;
-    }
-    return `${config.system.defaultMeetingPrefix}-${params.groupId}`;
-  }, [mode, config, params.groupId]);
+  const [notify, setNotify] = useState([]);
+  const [chatText, setChatText] = useState("");
+  const [mainScreen, setMainScreen] = useState("local");
+  const [permissions, setPermissions] = useState({ cam: false, mic: false, spk: false, error: "" });
+
+  useEffect(() => {
+    navigator.mediaDevices
+      .getUserMedia({ audio: true, video: true })
+      .then(() => {
+        setPermissions({ cam: true, mic: true, spk: true, error: "" });
+      })
+      .catch((error) => {
+        setPermissions({ cam: false, mic: false, spk: false, error: error.message });
+      });
+  }, []);
+
+  const roleTitle = me.role === "master_host" ? "总主持人会议页面" : me.role === "group_host" ? "分组主持人会议页面" : "普通用户会议页面";
 
   return (
     <section className="panel">
-      <h2>{mode === "main" ? "主会场页" : `小组会议页 - ${params.groupId}`}</h2>
+      <h2>{roleTitle}</h2>
+      <p>会议ID: {meetingId}</p>
+      <p>房间: {roomName}</p>
+      <p>
+        权限状态: 摄像头 {permissions.cam ? "已授权" : "未授权"} / 麦克风 {permissions.mic ? "已授权" : "未授权"} / 扬声器{" "}
+        {permissions.spk ? "可用" : "未就绪"}
+      </p>
+      {permissions.error ? <p className="error">设备权限错误: {permissions.error}</p> : null}
+
+      <div className="toolbar">
+        <button onClick={() => setMainScreen("main-hall")}>主会场主画面</button>
+        <button onClick={() => setMainScreen("group-host")}>本组主持主画面</button>
+        <button onClick={() => setMainScreen("speaker")}>获准发言人主画面</button>
+        <button onClick={() => runControlAction(me.role, "member:raise-hand", meetingId, setNotify)}>申请发言</button>
+        <button onClick={() => addNotify(setNotify, "收到主持人通知：请准备发言")}>模拟透明通知</button>
+      </div>
+
+      {(me.role === "group_host" || me.role === "master_host") && (
+        <div className="toolbar">
+          <button onClick={() => runControlAction(me.role, "member:speak-control", meetingId, setNotify)}>批准发言请求</button>
+          <button onClick={() => runControlAction(me.role, "recording:start", meetingId, setNotify)}>开始录制</button>
+          <button onClick={() => runControlAction(me.role, "recording:stop", meetingId, setNotify)}>停止录制</button>
+          <button onClick={() => runControlAction(me.role, "notification:send", meetingId, setNotify)}>向参会者发文字通知</button>
+        </div>
+      )}
+
+      {(me.role === "group_host" || me.role === "master_host") && (
+        <div className="toolbar">
+          <button onClick={() => runControlAction(me.role, "group:member-manage", meetingId, setNotify)}>一键开关全部麦克风</button>
+          <button onClick={() => runControlAction(me.role, "group:member-manage", meetingId, setNotify)}>一键开关全部扬声器</button>
+          <button onClick={() => runControlAction(me.role, "group:member-manage", meetingId, setNotify)}>一键开关文件可见范围</button>
+        </div>
+      )}
+
+      <p>当前主画面选择: {mainScreen}（主持人可覆盖）</p>
+
       <JitsiEmbed
         domain={config.system.jitsiDomain}
         roomName={roomName}
         displayName={me.displayName}
         uiConfig={config.system.ui}
         onEvent={(name, payload) => {
-          setEvents((prev) => [{ time: new Date().toLocaleTimeString(), name, payload }, ...prev].slice(0, 30));
+          setEvents((prev) => [{ time: new Date().toLocaleTimeString(), name, payload }, ...prev].slice(0, 40));
         }}
       />
-      <div className="event-list">
-        <h3>会中事件与状态面板</h3>
-        {events.map((item, index) => (
-          <div key={`${item.time}-${index}`} className="event-item">
-            [{item.time}] {item.name}
-          </div>
-        ))}
-      </div>
-    </section>
-  );
-}
 
-function MasterConsole({ config, me }) {
-  const [message, setMessage] = useState("");
-  if (me.role !== "master_host") {
-    return <NoPermission />;
-  }
-  return (
-    <section className="panel">
-      <h2>总主持控制台</h2>
-      <p>该页面提供 breakout rooms 管理、录制、通知与调度动作（先后端鉴权，再执行前端 IFrame 命令）。</p>
+      <div className="split">
+        <div className="event-list">
+          <h3>信息栏（透明通知）</h3>
+          {notify.map((item, idx) => (
+            <div key={`${item.time}-${idx}`} className="event-item">
+              [{item.time}] {item.text}
+            </div>
+          ))}
+        </div>
+        <div className="event-list">
+          <h3>会中事件</h3>
+          {events.map((item, idx) => (
+            <div key={`${item.time}-${idx}`} className="event-item">
+              [{item.time}] {item.name}
+            </div>
+          ))}
+        </div>
+      </div>
+
       <div className="toolbar">
-        <button onClick={() => runControl("breakout:create", "main", setMessage)}>创建全部分组</button>
-        <button onClick={() => runControl("breakout:close", "main", setMessage)}>关闭全部分组</button>
-        <button onClick={() => runControl("breakout:auto-assign", "main", setMessage)}>自动分配成员</button>
-        <button onClick={() => runControl("recording:start", "main", setMessage)}>开始主会场录制</button>
-        <button onClick={() => runControl("recording:stop", "main", setMessage)}>停止主会场录制</button>
-        <button onClick={() => runControl("notification:send", "main", setMessage)}>发送全局通知</button>
-        <button onClick={() => runControl("meeting:password-update", "main", setMessage)}>一键更新入会密码</button>
+        <input value={chatText} placeholder="输入文字消息发送给主持人及参会者" onChange={(e) => setChatText(e.target.value)} />
+        <button
+          onClick={() => {
+            if (chatText.trim()) {
+              addNotify(setNotify, `我发送: ${chatText.trim()}`);
+              setChatText("");
+            }
+          }}
+        >
+          发送文字信息
+        </button>
+        <button onClick={() => addNotify(setNotify, "上传文件并翻页分享（首版为业务层按钮）")}>上传文件并翻页分享</button>
       </div>
-      <h3>小组列表</h3>
-      <ul>
-        {config.meetingTemplate.groups.map((group) => (
-          <li key={group.id}>
-            {group.name} ({group.id}) - 默认主持: {group.defaultHostUserId || "未设置"}
-          </li>
-        ))}
-      </ul>
-      {message && <p className="hint">{message}</p>}
     </section>
   );
 }
 
-function GroupConsole({ config, me }) {
-  if (!(me.role === "group_host" || me.role === "master_host")) {
-    return <NoPermission />;
-  }
-  const groupId = me.role === "group_host" ? me.groupId : config.meetingTemplate.groups[0]?.id;
-  const group = config.meetingTemplate.groups.find((item) => item.id === groupId);
-  const members = config.users.filter((user) => user.groupId === groupId && user.role === "member");
-  const [message, setMessage] = useState("");
-  return (
-    <section className="panel">
-      <h2>小组主持控制台</h2>
-      <p>当前小组: {group?.name || "未匹配"}</p>
-      <div className="toolbar">
-        <button onClick={() => runControl("group:member-manage", groupId, setMessage)}>管理成员状态</button>
-        <button onClick={() => runControl("recording:start", groupId, setMessage)}>开始小组录制</button>
-        <button onClick={() => runControl("recording:stop", groupId, setMessage)}>停止小组录制</button>
-        <button onClick={() => runControl("notification:send", groupId, setMessage)}>发送本组通知</button>
-        <button onClick={() => runControl("member:speak-control", groupId, setMessage)}>授权成员发言/共享</button>
-      </div>
-      <h3>本组成员</h3>
-      <ul>
-        {members.map((member) => (
-          <li key={member.id}>
-            {member.displayName} ({member.username})
-          </li>
-        ))}
-      </ul>
-      {message && <p className="hint">{message}</p>}
-    </section>
-  );
-}
-
-async function runControl(action, roomId, setMessage) {
+async function runControlAction(role, action, roomId, setNotify) {
   try {
-    await authorizeControl(action, roomId, { requestedAt: new Date().toISOString() });
-    setMessage(`动作 ${action} 已通过后端授权，可执行 Jitsi 命令`);
+    await authorizeControl(action, roomId, { role, roomId, at: new Date().toISOString() });
+    addNotify(setNotify, `动作已执行: ${action}`);
   } catch (error) {
-    setMessage(error?.response?.data?.message || `动作 ${action} 授权失败`);
+    addNotify(setNotify, `动作失败: ${error?.response?.data?.message || action}`);
   }
 }
 
-function ConfigEditor() {
+function addNotify(setter, text) {
+  setter((prev) => [{ time: new Date().toLocaleTimeString(), text }, ...prev].slice(0, 30));
+}
+
+function MasterConfigPage({ me }) {
   const [rawYaml, setRawYaml] = useState("");
-  const [message, setMessage] = useState("加载中...");
+  const [message, setMessage] = useState("");
 
   useEffect(() => {
     loadConfig()
@@ -322,206 +459,45 @@ function ConfigEditor() {
         setRawYaml(res.rawYaml);
         setMessage("配置已载入");
       })
-      .catch((error) => setMessage(error?.response?.data?.message || "读取配置失败"));
+      .catch((error) => {
+        setMessage(error?.response?.data?.message || "读取配置失败");
+      });
   }, []);
 
-  return (
-    <section className="panel">
-      <h2>配置文件编辑页</h2>
-      <div className="split">
-        <div>
-          <Editor height="540px" language="yaml" value={rawYaml} onChange={(value) => setRawYaml(value || "")} />
-          <div className="toolbar">
-            <button
-              onClick={async () => {
-                try {
-                  const res = await validateConfig(rawYaml);
-                  setMessage(`校验完成: 错误 ${res.errors.length} 条，警告 ${res.warnings.length} 条`);
-                } catch (error) {
-                  setMessage(error?.response?.data?.message || "校验失败");
-                }
-              }}
-            >
-              校验配置
-            </button>
-            <button
-              onClick={async () => {
-                try {
-                  const res = await saveConfig(rawYaml);
-                  setRawYaml(YAML.stringify(res.normalized));
-                  setMessage(`保存成功，当前版本 ${res.normalized.version}`);
-                } catch (error) {
-                  setMessage(error?.response?.data?.message || "保存失败");
-                }
-              }}
-            >
-              发布/保存配置
-            </button>
-            <button
-              onClick={async () => {
-                try {
-                  const res = await loadConfig();
-                  setRawYaml(res.rawYaml);
-                  setMessage("已载入当前配置");
-                } catch (error) {
-                  setMessage(error?.response?.data?.message || "载入失败");
-                }
-              }}
-            >
-              载入当前配置
-            </button>
-          </div>
-        </div>
-        <aside>
-          <h3>配置说明</h3>
-          <ul>
-            <li>左侧编辑 YAML，右侧查看说明。</li>
-            <li>保存时自动备份最近 5 个版本。</li>
-            <li>字段错误请先校验再发布。</li>
-          </ul>
-          <p className="hint">{message}</p>
-        </aside>
-      </div>
-    </section>
-  );
-}
-
-function ConfigPreview() {
-  const [data, setData] = useState(null);
-  useEffect(() => {
-    loadConfig().then((res) => setData(res.config)).catch(() => setData(null));
-  }, []);
-  if (!data) {
-    return <section className="panel">加载配置预览中...</section>;
+  if (me.role !== "master_host") {
+    return (
+      <section className="panel">
+        <h2>无权限</h2>
+      </section>
+    );
   }
-  return (
-    <section className="panel">
-      <h2>配置预览页</h2>
-      <div className="grid">
-        <article className="card">主会场: {data.meetingTemplate.mainRoomName}</article>
-        <article className="card">breakout rooms: {data.meetingTemplate.groups.length} 个</article>
-        <article className="card">用户总数: {data.users.length}</article>
-        <article className="card">可录制角色: {data.recordingPolicy.allowedRoles.join(", ")}</article>
-      </div>
-      <h3>小组主持覆盖</h3>
-      <ul>
-        {data.meetingTemplate.groups.map((group) => (
-          <li key={group.id}>
-            {group.name} - 主持 {group.defaultHostUserId || "未配置"}
-          </li>
-        ))}
-      </ul>
-    </section>
-  );
-}
-
-function ConfigHistory() {
-  const [items, setItems] = useState([]);
-  const [message, setMessage] = useState("");
-  async function refresh() {
-    const res = await history(5);
-    setItems(res.items);
-  }
-  useEffect(() => {
-    refresh().catch(() => setItems([]));
-  }, []);
-  return (
-    <section className="panel">
-      <h2>配置历史页</h2>
-      <button onClick={() => refresh().catch(() => setMessage("刷新失败"))}>刷新历史</button>
-      <ul>
-        {items.map((item) => (
-          <li key={item.file}>
-            {item.file} - {item.updatedAt}
-            <button
-              onClick={async () => {
-                try {
-                  await rollback(item.file);
-                  setMessage(`回滚成功: ${item.file}`);
-                  await refresh();
-                } catch (error) {
-                  setMessage(error?.response?.data?.message || "回滚失败");
-                }
-              }}
-            >
-              回滚
-            </button>
-          </li>
-        ))}
-      </ul>
-      {message && <p className="hint">{message}</p>}
-    </section>
-  );
-}
-
-function LogsPage() {
-  const [items, setItems] = useState([]);
-  useEffect(() => {
-    logs()
-      .then((res) => setItems(res.items))
-      .catch(() => setItems([]));
-  }, []);
-  return (
-    <section className="panel">
-      <h2>系统日志页（简版）</h2>
-      <div className="event-list">
-        {items.map((item) => (
-          <div className="event-item" key={item.id}>
-            [{item.time}] {item.actorRole} {item.action} - {item.target}
-          </div>
-        ))}
-      </div>
-    </section>
-  );
-}
-
-function MatrixWall({ config }) {
-  const groups = config.meetingTemplate.groups;
-  const [activeGroup, setActiveGroup] = useState(groups[0]?.id || "");
-  const [index, setIndex] = useState(0);
-  const group = groups.find((item) => item.id === activeGroup) || groups[0];
-  const rotateSeconds = config.matrixWall.rotateSeconds;
-
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setIndex((prev) => prev + 1);
-    }, rotateSeconds * 1000);
-    return () => clearInterval(timer);
-  }, [rotateSeconds]);
-
-  const tileCount = Math.min(config.matrixWall.maxTilesPerGroup, 6);
-  const roomNames = Array.from({ length: tileCount }).map((_, i) => `${config.system.defaultMeetingPrefix}-${group.id}-tile-${(index + i) % tileCount}`);
 
   return (
     <section className="panel">
-      <h2>矩阵巡检墙</h2>
+      <h2>总主持人配置页面</h2>
+      <p>配置修改保存后立即生效</p>
+      <Editor height="560px" language="yaml" value={rawYaml} onChange={(value) => setRawYaml(value || "")} />
       <div className="toolbar">
-        {groups.map((item) => (
-          <button key={item.id} onClick={() => setActiveGroup(item.id)}>
-            {item.name}
-          </button>
-        ))}
+        <button
+          onClick={async () => {
+            const res = await validateConfig(rawYaml);
+            setMessage(`校验完成：错误 ${res.errors.length} 条，警告 ${res.warnings.length} 条`);
+          }}
+        >
+          校验配置
+        </button>
+        <button
+          onClick={async () => {
+            const res = await saveConfig(rawYaml);
+            setRawYaml(YAML.stringify(res.normalized));
+            setMessage(`保存成功，版本 ${res.normalized.version}`);
+          }}
+        >
+          保存并立即生效
+        </button>
       </div>
-      <p>
-        当前组: {group?.name}，轮播间隔: {rotateSeconds}s
-      </p>
-      <div className="wall-grid">
-        {roomNames.map((room) => (
-          <div key={room} className="wall-tile">
-            <div className="tile-title">{room}</div>
-            <JitsiEmbed domain={config.system.jitsiDomain} roomName={room} displayName="巡检墙" uiConfig={config.system.ui} />
-          </div>
-        ))}
-      </div>
+      {message ? <p className="hint">{message}</p> : null}
     </section>
   );
 }
 
-function NoPermission() {
-  return (
-    <section className="panel">
-      <h2>权限不足</h2>
-      <p>当前角色无权访问此页面。</p>
-    </section>
-  );
-}

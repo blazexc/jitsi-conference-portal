@@ -255,7 +255,7 @@ function defaultConfigYaml() {
         displayName: "普通成员01",
         role: "member",
         groupId: "group-a",
-        passwordHash: "",
+        passwordHash: "$2b$10$f32QrigR.7dJSuHMYhoC/u2gGKD4J.0.PVBVgr3ekRJVKn3H9iequ",
         canStartRecording: false,
         canStartTranscription: false
       }

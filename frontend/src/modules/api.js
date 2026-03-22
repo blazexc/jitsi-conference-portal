@@ -30,6 +30,26 @@ export async function bootstrap() {
   return data;
 }
 
+export async function createMeeting(name) {
+  const { data } = await http.post("/meeting/create", { name });
+  return data;
+}
+
+export async function createGroupedMeeting(name, groups) {
+  const { data } = await http.post("/meeting/create-grouped", { name, groups });
+  return data;
+}
+
+export async function joinMeeting(meetingId) {
+  const { data } = await http.post("/meeting/join", { meetingId });
+  return data;
+}
+
+export async function listMeeting() {
+  const { data } = await http.get("/meeting/list");
+  return data;
+}
+
 export async function authorizeControl(action, roomId, payload = {}) {
   const { data } = await http.post("/control/authorize", { action, roomId, payload });
   return data;
@@ -64,4 +84,3 @@ export async function logs() {
   const { data } = await http.get("/logs");
   return data;
 }
-

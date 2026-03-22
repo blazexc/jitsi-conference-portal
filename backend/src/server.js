@@ -17,6 +17,7 @@ const {
 const { authenticateHost, issueSessionToken, issueMemberJoinToken, parseToken, getConfig } = require("./auth-service");
 const { assertAction } = require("./permissions");
 const { appendOperation, listOperations } = require("./log-service");
+const { createMeeting, findMeeting, listMeetings } = require("./meeting-service");
 
 ensureStorage();
 
@@ -127,8 +128,124 @@ app.get("/api/bootstrap", requireAuth, (request, response) => {
   response.json({
     ok: true,
     config,
-    me: request.session.user
+    me: request.session.user,
+    meetings: listMeetings(50)
   });
+});
+
+app.post("/api/meeting/create", requireAuth, (request, response) => {
+  const me = request.session.user;
+  if (!(me.role === "master_host" || me.role === "group_host")) {
+    response.status(403).json({ ok: false, message: "仅主持人可创建会议" });
+    return;
+  }
+  const name = String(request.body.name || "").trim();
+  if (!name) {
+    response.status(400).json({ ok: false, message: "会议名称不能为空" });
+    return;
+  }
+  const meeting = createMeeting({
+    name,
+    createdBy: me.username,
+    createdRole: me.role,
+    type: "single",
+    groups: []
+  });
+  appendOperation({
+    actorId: me.id,
+    actorRole: me.role,
+    action: "meeting:create",
+    target: meeting.meetingId,
+    detail: `创建会议 ${meeting.name}`
+  });
+  response.json({ ok: true, meeting });
+});
+
+app.post("/api/meeting/create-grouped", requireAuth, (request, response) => {
+  const me = request.session.user;
+  if (me.role !== "master_host") {
+    response.status(403).json({ ok: false, message: "仅总主持可创建分组会议" });
+    return;
+  }
+
+  const name = String(request.body.name || "").trim();
+  const groups = Array.isArray(request.body.groups) ? request.body.groups : [];
+  if (!name) {
+    response.status(400).json({ ok: false, message: "会议名称不能为空" });
+    return;
+  }
+  if (groups.length === 0) {
+    response.status(400).json({ ok: false, message: "请至少添加一个分组" });
+    return;
+  }
+  const normalizedGroups = groups.map((group) => ({
+    groupId: String(group.groupId || "").trim(),
+    groupName: String(group.groupName || "").trim(),
+    hostUsername: String(group.hostUsername || "").trim(),
+    members: Array.isArray(group.members) ? group.members.map((item) => String(item).trim()).filter(Boolean) : []
+  }));
+  const invalid = normalizedGroups.find((group) => !group.groupId || !group.groupName);
+  if (invalid) {
+    response.status(400).json({ ok: false, message: "分组ID和分组名不能为空" });
+    return;
+  }
+
+  const meeting = createMeeting({
+    name,
+    createdBy: me.username,
+    createdRole: me.role,
+    type: "grouped",
+    groups: normalizedGroups
+  });
+  appendOperation({
+    actorId: me.id,
+    actorRole: me.role,
+    action: "meeting:create-grouped",
+    target: meeting.meetingId,
+    detail: `创建分组会议 ${meeting.name}`
+  });
+  response.json({ ok: true, meeting });
+});
+
+app.post("/api/meeting/join", requireAuth, (request, response) => {
+  const me = request.session.user;
+  const meetingId = String(request.body.meetingId || "").trim();
+  if (!meetingId) {
+    response.status(400).json({ ok: false, message: "会议ID不能为空" });
+    return;
+  }
+  const meeting = findMeeting(meetingId);
+  if (!meeting) {
+    response.status(404).json({ ok: false, message: "未找到该会议ID" });
+    return;
+  }
+
+  let roomName = meeting.roomName;
+  if (meeting.type === "grouped") {
+    const hit = meeting.groups.find((group) => {
+      if (group.hostUsername === me.username) {
+        return true;
+      }
+      return group.members.includes(me.username);
+    });
+    if (hit) {
+      roomName = `${meeting.roomName}-${hit.groupId}`;
+    }
+  }
+
+  appendOperation({
+    actorId: me.id,
+    actorRole: me.role,
+    action: "meeting:join",
+    target: meetingId,
+    detail: `进入房间 ${roomName}`
+  });
+
+  response.json({ ok: true, meeting, roomName });
+});
+
+app.get("/api/meeting/list", requireAuth, (request, response) => {
+  response.json({ ok: true, meetings: listMeetings(100) });
 });
 
 app.get("/api/config/current", requireAction("config:edit"), (_request, response) => {
