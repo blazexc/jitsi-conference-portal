@@ -348,6 +348,14 @@ function MeetingPage({ me, config }) {
   const [events, setEvents] = useState([]);
   const [activeGroupId, setActiveGroupId] = useState("");
   const [carouselPage, setCarouselPage] = useState(0);
+  const [drawerTab, setDrawerTab] = useState("participants");
+  const [drawerOpen, setDrawerOpen] = useState(true);
+  const [stageMode, setStageMode] = useState("grid");
+
+  const safeTemplateGroups = config?.meetingTemplate?.groups || [];
+  const safePrefix = config?.system?.defaultMeetingPrefix || "biz";
+  const safeDomain = config?.system?.jitsiDomain || "";
+  const safeUi = config?.system?.ui || {};
 
   useEffect(() => {
     navigator.mediaDevices
@@ -356,13 +364,12 @@ function MeetingPage({ me, config }) {
       .catch((error) => setPermissions({ cam: false, mic: false, error: error.message }));
   }, []);
 
-  // 总主持始终显示小组标签，来源优先级：会议分组 > 全局配置分组。
   const groups = useMemo(() => {
     if (Array.isArray(meeting?.groups) && meeting.groups.length > 0) {
       return meeting.groups.map((group) => ({ groupId: group.groupId, groupName: group.groupName }));
     }
-    return (config.meetingTemplate.groups || []).map((group) => ({ groupId: group.id, groupName: group.name }));
-  }, [meeting, config.meetingTemplate.groups]);
+    return safeTemplateGroups.map((group) => ({ groupId: group.id, groupName: group.name }));
+  }, [meeting, safeTemplateGroups]);
 
   useEffect(() => {
     if (groups.length > 0 && !activeGroupId) {
@@ -374,41 +381,85 @@ function MeetingPage({ me, config }) {
     if (me.role !== "master_host") {
       return;
     }
-    // 总主持画面轮播：每 10 秒切换到下一批 8 画面。
     const timer = setInterval(() => {
       setCarouselPage((prev) => prev + 1);
-    }, 10000);
+    }, 12000);
     return () => clearInterval(timer);
   }, [me.role]);
 
   const roomName = useMemo(() => {
-    return roomParam || `biz-${meetingId}`.toLowerCase();
-  }, [meetingId, roomParam]);
+    return roomParam || `${safePrefix}-${meetingId}`.toLowerCase();
+  }, [meetingId, roomParam, safePrefix]);
 
   const activeGroup = activeGroupId || groups[0]?.groupId || "main";
   const carouselRooms = useMemo(() => {
     if (me.role !== "master_host") {
       return [roomName];
     }
-    const start = carouselPage * 8;
-    return Array.from({ length: 8 }).map((_, idx) => `${config.system.defaultMeetingPrefix}-${activeGroup}-view-${start + idx + 1}`);
-  }, [me.role, roomName, carouselPage, config.system.defaultMeetingPrefix, activeGroup]);
+    const start = (carouselPage % 100) * 8;
+    return Array.from({ length: 8 }).map((_, idx) => `${safePrefix}-${activeGroup}-view-${start + idx + 1}`);
+  }, [me.role, roomName, carouselPage, safePrefix, activeGroup]);
+
+  const roleUsers = useMemo(() => {
+    return Array.isArray(config?.users) ? config.users : [];
+  }, [config?.users]);
+
+  const groupMembers = useMemo(() => {
+    if (me.role !== "master_host") {
+      return roleUsers.filter((u) => u.groupId === me.groupId);
+    }
+    if (!activeGroupId) {
+      return roleUsers;
+    }
+    return roleUsers.filter((u) => u.groupId === activeGroupId);
+  }, [me.role, me.groupId, roleUsers, activeGroupId]);
+
+  const requestItems = useMemo(() => {
+    return events
+      .filter((item) => /raise|request|hand|speak/i.test(item.name || ""))
+      .slice(0, 20);
+  }, [events]);
+
+  const onlineCount = Math.max(1, events.filter((x) => /participantJoined/i.test(x.name || "")).length + 1);
+
+  const handleControl = async (permission, payload, successLabel) => {
+    try {
+      await authorizeControl(permission, meetingId, payload);
+      setEvents((prev) => [{ t: new Date().toLocaleTimeString(), name: successLabel, payload }, ...prev].slice(0, 80));
+    } catch (error) {
+      setEvents((prev) => [{ t: new Date().toLocaleTimeString(), name: "control_error", payload: error?.response?.data?.message || "control failed" }, ...prev].slice(0, 80));
+    }
+  };
 
   return (
-    <section className="panel">
-      <h2>{roleMeetingTitle(me.role)}</h2>
-      <p>会议ID: {meetingId}</p>
-      <p>
-        设备权限: 摄像头 {permissions.cam ? "已授权" : "未授权"} / 麦克风 {permissions.mic ? "已授权" : "未授权"}
-      </p>
-      {permissions.error ? <p className="error">设备权限异常: {permissions.error}</p> : null}
+    <section className="meeting-shell">
+      <header className="meeting-topbar">
+        <div className="meeting-meta">
+          <h2>{roleMeetingTitle(me.role)}</h2>
+          <p>
+            ??ID: {meetingId} | ??: {roomName}
+          </p>
+        </div>
+        <div className="meeting-status">
+          <span className={`status-chip ${permissions.cam ? "ok" : "warn"}`}>??? {permissions.cam ? "???" : "???"}</span>
+          <span className={`status-chip ${permissions.mic ? "ok" : "warn"}`}>??? {permissions.mic ? "???" : "???"}</span>
+          <span className="status-chip neutral">?? {onlineCount}</span>
+          <button type="button" className="drawer-toggle" onClick={() => setDrawerOpen((v) => !v)}>
+            {drawerOpen ? "????" : "????"}
+          </button>
+        </div>
+      </header>
 
       {me.role === "master_host" ? (
-        <div className="group-tabs">
+        <div className="meeting-group-strip">
+          <button type="button" className={!activeGroupId ? "active" : ""} onClick={() => setActiveGroupId("")}>
+            ??
+          </button>
           {groups.map((group) => (
             <button
+              type="button"
               key={group.groupId}
-              className={activeGroupId === group.groupId ? "tab-active" : ""}
+              className={activeGroupId === group.groupId ? "active" : ""}
               onClick={() => {
                 setActiveGroupId(group.groupId);
                 setCarouselPage(0);
@@ -420,75 +471,106 @@ function MeetingPage({ me, config }) {
         </div>
       ) : null}
 
-      <div className="video-focus">
-        {me.role === "master_host" ? (
-          <div className="video-focus-grid">
-            {carouselRooms.map((room) => (
-              <div className="video-focus-tile" key={room}>
-                <div className="video-focus-title">{room}</div>
-                <JitsiEmbed
-                  domain={config.system.jitsiDomain}
-                  roomName={room}
-                  displayName={me.displayName}
-                  uiConfig={config.system.ui}
-                  onEvent={(name, payload) => setEvents((prev) => [{ t: new Date().toLocaleTimeString(), name, payload }, ...prev].slice(0, 40))}
-                />
+      <div className="meeting-main">
+        <div className="meeting-stage-wrap">
+          {me.role === "master_host" ? (
+            <div className={`meeting-stage ${stageMode === "focus" ? "focus-mode" : ""}`}>
+              {carouselRooms.map((room) => (
+                <article className="stage-tile" key={room}>
+                  <div className="stage-tile-title">{room}</div>
+                  <JitsiEmbed
+                    domain={safeDomain}
+                    roomName={room}
+                    displayName={me.displayName}
+                    uiConfig={safeUi}
+                    onEvent={(name, payload) => setEvents((prev) => [{ t: new Date().toLocaleTimeString(), name, payload }, ...prev].slice(0, 80))}
+                  />
+                </article>
+              ))}
+            </div>
+          ) : (
+            <div className="meeting-stage-single">
+              <JitsiEmbed
+                domain={safeDomain}
+                roomName={roomName}
+                displayName={me.displayName}
+                uiConfig={safeUi}
+                onEvent={(name, payload) => setEvents((prev) => [{ t: new Date().toLocaleTimeString(), name, payload }, ...prev].slice(0, 80))}
+              />
+            </div>
+          )}
+        </div>
+
+        {drawerOpen ? (
+          <aside className="meeting-drawer">
+            <div className="drawer-tabs">
+              <button type="button" className={drawerTab === "participants" ? "active" : ""} onClick={() => setDrawerTab("participants")}>??</button>
+              <button type="button" className={drawerTab === "requests" ? "active" : ""} onClick={() => setDrawerTab("requests")}>??</button>
+              <button type="button" className={drawerTab === "events" ? "active" : ""} onClick={() => setDrawerTab("events")}>??</button>
+            </div>
+            {drawerTab === "participants" ? (
+              <div className="drawer-list">
+                {groupMembers.slice(0, 60).map((user) => (
+                  <div className="drawer-item" key={user.userId || user.username}>
+                    <strong>{user.displayName || user.username}</strong>
+                    <span>{user.role}</span>
+                  </div>
+                ))}
+                {groupMembers.length === 0 ? <p className="hint">??????</p> : null}
               </div>
-            ))}
-          </div>
-        ) : (
-          <div className="video-stage">
-            <JitsiEmbed
-              domain={config.system.jitsiDomain}
-              roomName={roomName}
-              displayName={me.displayName}
-              uiConfig={config.system.ui}
-              onEvent={(name, payload) => setEvents((prev) => [{ t: new Date().toLocaleTimeString(), name, payload }, ...prev].slice(0, 40))}
-            />
-          </div>
+            ) : null}
+            {drawerTab === "requests" ? (
+              <div className="drawer-list">
+                {requestItems.map((item, idx) => (
+                  <div className="drawer-item" key={`${item.t}-${idx}`}>
+                    <strong>{item.name}</strong>
+                    <span>{item.t}</span>
+                  </div>
+                ))}
+                {requestItems.length === 0 ? <p className="hint">??????</p> : null}
+              </div>
+            ) : null}
+            {drawerTab === "events" ? (
+              <div className="drawer-list">
+                {events.slice(0, 40).map((item, idx) => (
+                  <div className="drawer-item" key={`${item.t}-${idx}`}>
+                    <strong>{item.name}</strong>
+                    <span>{item.t}</span>
+                  </div>
+                ))}
+                {events.length === 0 ? <p className="hint">????</p> : null}
+              </div>
+            ) : null}
+          </aside>
+        ) : null}
+      </div>
+
+      <div className="meeting-dock">
+        <button type="button" title="??????" onClick={() => setStageMode((v) => (v === "grid" ? "focus" : "grid"))}>??</button>
+        {(me.role === "master_host" || me.role === "group_host") && (
+          <>
+            <button type="button" title="????" onClick={() => handleControl("group:member-manage", { action: "mute-all" }, "mute_all")}>???</button>
+            <button type="button" title="??????" onClick={() => handleControl("group:member-manage", { action: "unmute-all" }, "unmute_all")}>????</button>
+            <button type="button" title="????" onClick={() => handleControl("recording:start", { action: "start-recording" }, "recording_start")}>??</button>
+            <button type="button" title="????" onClick={() => handleControl("recording:stop", { action: "stop-recording" }, "recording_stop")}>??</button>
+            <button type="button" title="?????????" onClick={() => handleControl("member:speak-control", { action: "approve-next-request" }, "approve_next_speaker")}>????</button>
+          </>
         )}
       </div>
 
-      {(me.role === "master_host" || me.role === "group_host") && (
-        <div className="icon-control-bar">
-          <button title="静音全部" onClick={() => authorizeControl("group:member-manage", meetingId, { action: "mute-all" })}>
-            MIC
-          </button>
-          <button title="取消静音全部" onClick={() => authorizeControl("group:member-manage", meetingId, { action: "unmute-all" })}>
-            UNM
-          </button>
-          <button title="开始录制" onClick={() => authorizeControl("recording:start", meetingId, { action: "start-recording" })}>
-            REC
-          </button>
-          <button title="停止录制" onClick={() => authorizeControl("recording:stop", meetingId, { action: "stop-recording" })}>
-            STP
-          </button>
-          <button title="批准发言（基于请求队列）" onClick={() => authorizeControl("member:speak-control", meetingId, { action: "approve-next-request" })}>
-            OK
-          </button>
-        </div>
-      )}
-
-      <details className="event-detail">
-        <summary>会中事件详情</summary>
-        {events.map((item, idx) => (
-          <p key={idx}>
-            [{item.t}] {item.name}
-          </p>
-        ))}
-      </details>
+      {permissions.error ? <p className="error meeting-error-banner">??????: {permissions.error}</p> : null}
     </section>
   );
 }
 
 function roleMeetingTitle(role) {
   if (role === "master_host") {
-    return "总主持人会议页面";
+    return "???????";
   }
   if (role === "group_host") {
-    return "分组主持人会议页面";
+    return "????????";
   }
-  return "普通用户会议页面";
+  return "????????";
 }
 
 function MasterConfigPage({ me }) {
