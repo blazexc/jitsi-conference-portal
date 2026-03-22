@@ -117,6 +117,10 @@ input {
   margin: 0.8rem 0;
 }
 
+.toolbar input {
+  min-width: 180px;
+}
+
 .event-list {
   margin-top: 1rem;
   max-height: 260px;
@@ -174,6 +178,121 @@ input {
   font-size: 0.8rem;
 }
 
+.section-gap {
+  height: 1px;
+  background: #e2e8f0;
+  margin: 1rem 0;
+}
+
+.meeting-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 0.6rem;
+}
+
+.meeting-item-btn {
+  text-align: left;
+  background: #eff6ff;
+  color: #0f172a;
+  border: 1px solid #bfdbfe;
+  border-radius: 10px;
+  padding: 0.6rem;
+}
+
+.meeting-item-btn strong {
+  display: block;
+}
+
+.meeting-item-btn span {
+  display: block;
+  margin-top: 0.2rem;
+}
+
+.meeting-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(300px, 1fr);
+  gap: 1rem;
+  align-items: start;
+}
+
+.video-stage .jitsi-embed {
+  min-height: 620px;
+}
+
+.participant-grid {
+  margin-top: 0.8rem;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+  gap: 0.5rem;
+}
+
+.participant-card {
+  text-align: left;
+  background: #f8fafc;
+  color: #0f172a;
+  border: 1px solid #cbd5e1;
+}
+
+.participant-card span {
+  display: block;
+  font-size: 12px;
+  color: #475569;
+}
+
+.participant-active {
+  outline: 2px solid #0f766e;
+}
+
+.side-panels {
+  display: grid;
+  gap: 0.7rem;
+}
+
+.glass-panel {
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid #cbd5e1;
+  border-radius: 12px;
+  padding: 0.7rem;
+  backdrop-filter: blur(5px);
+}
+
+.glass-panel h3 {
+  margin: 0 0 0.5rem;
+}
+
+.request-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.35rem;
+}
+
+.group-tabs {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 0.8rem;
+  flex-wrap: wrap;
+}
+
+.group-tabs button {
+  background: #e2e8f0;
+  color: #0f172a;
+}
+
+.group-tabs .tab-active {
+  background: #0f766e;
+  color: white;
+}
+
+.event-detail {
+  margin-top: 0.8rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  padding: 0.5rem 0.7rem;
+  background: #f8fafc;
+}
+
 @media (max-width: 900px) {
   .split {
     grid-template-columns: 1fr;
@@ -181,5 +300,10 @@ input {
   .wall-grid {
     grid-template-columns: 1fr;
   }
+  .meeting-layout {
+    grid-template-columns: 1fr;
+  }
+  .video-stage .jitsi-embed {
+    min-height: 460px;
+  }
 }
-
