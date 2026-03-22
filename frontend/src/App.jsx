@@ -27,12 +27,15 @@ export default function App() {
 
 function ProtectedLayout() {
   const { isAuthed, loading } = useAuth();
-  const [state, setState] = useState({ loading: true, config: null, me: null });
+  const [state, setState] = useState({ loading: false, config: null, me: null });
 
   useEffect(() => {
     if (!isAuthed) {
+      // 未登录时不再等待 bootstrap，直接交给路由跳转到登录页。
+      setState({ loading: false, config: null, me: null });
       return;
     }
+    setState((prev) => ({ ...prev, loading: true }));
     bootstrap()
       .then((res) => {
         setState({ loading: false, config: res.config, me: res.me });
@@ -508,4 +511,3 @@ function NoPermission() {
     </section>
   );
 }
-
