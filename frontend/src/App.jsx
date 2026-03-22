@@ -26,24 +26,29 @@ export default function App() {
 }
 
 function ProtectedLayout() {
-  const { isAuthed, loading } = useAuth();
-  const [state, setState] = useState({ loading: false, config: null, me: null });
+  const { isAuthed, loading, user: authedUser } = useAuth();
+  const [state, setState] = useState({ loading: false, config: null, me: null, error: "" });
 
   useEffect(() => {
     if (!isAuthed) {
       // 未登录时不再等待 bootstrap，直接交给路由跳转到登录页。
-      setState({ loading: false, config: null, me: null });
+      setState({ loading: false, config: null, me: null, error: "" });
       return;
     }
-    setState((prev) => ({ ...prev, loading: true }));
+    setState((prev) => ({ ...prev, loading: true, error: "" }));
     bootstrap()
       .then((res) => {
-        setState({ loading: false, config: res.config, me: res.me });
+        setState({ loading: false, config: res.config, me: res.me, error: "" });
       })
       .catch(() => {
-        setState({ loading: false, config: null, me: null });
+        setState({
+          loading: false,
+          config: null,
+          me: authedUser || null,
+          error: "会话已建立，但加载门户数据失败。请刷新后重试。"
+        });
       });
-  }, [isAuthed]);
+  }, [isAuthed, authedUser]);
 
   if (loading || state.loading) {
     return <div className="center-panel">加载中...</div>;
@@ -51,6 +56,15 @@ function ProtectedLayout() {
 
   if (!isAuthed) {
     return <Navigate to="/login" replace />;
+  }
+
+  if (!state.config || !state.me) {
+    return (
+      <div className="center-panel">
+        <h2>页面加载失败</h2>
+        <p>{state.error || "未获取到门户数据，请刷新页面后重试。"}</p>
+      </div>
+    );
   }
 
   return (
@@ -82,7 +96,7 @@ function Header({ me }) {
       <div>
         <h1>Jitsi 会议门户</h1>
         <p>
-          当前用户: {me.displayName} ({me.role})
+          当前用户: {me?.displayName || "-"} ({me?.role || "-"})
         </p>
       </div>
       <nav className="nav">
